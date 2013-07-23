@@ -496,6 +496,7 @@ function wp_get_http( $url, $file_path = false, $red = 1 ) {
 
 	$options = array();
 	$options['redirection'] = 5;
+	$options['reject_unsafe_urls'] = true;
 
 	if ( false == $file_path )
 		$options['method'] = 'HEAD';
@@ -543,7 +544,7 @@ function wp_get_http_headers( $url, $deprecated = false ) {
 	if ( !empty( $deprecated ) )
 		_deprecated_argument( __FUNCTION__, '2.7' );
 
-	$response = wp_remote_head( $url );
+	$response = wp_remote_head( $url, array( 'reject_unsafe_urls' => true ) );
 
 	if ( is_wp_error( $response ) )
 		return false;
@@ -655,10 +656,10 @@ function add_query_arg() {
 	else
 		$frag = '';
 
-	if ( 0 === stripos( 'http://', $uri ) ) {
+	if ( 0 === stripos( $uri, 'http://' ) ) {
 		$protocol = 'http://';
 		$uri = substr( $uri, 7 );
-	} elseif ( 0 === stripos( 'https://', $uri ) ) {
+	} elseif ( 0 === stripos( $uri, 'https://' ) ) {
 		$protocol = 'https://';
 		$uri = substr( $uri, 8 );
 	} else {
@@ -758,6 +759,7 @@ function wp_remote_fopen( $uri ) {
 
 	$options = array();
 	$options['timeout'] = 10;
+	$options['reject_unsafe_urls'] = true;
 
 	$response = wp_remote_get( $uri, $options );
 
@@ -1312,8 +1314,19 @@ function wp_get_original_referer() {
  * @return bool Whether the path was created. True if path already exists.
  */
 function wp_mkdir_p( $target ) {
-	if ( substr($target, 0, 10) == 'saestor://' ) {
-		return true;
+	$wrapper = null;
+
+	// strip the protocol
+	if( wp_is_stream( $target ) ) {
+		list( $wrapper, $target ) = explode( '://', $target, 2 );
+	}
+
+	// from php.net/mkdir user contributed notes
+	$target = str_replace( '//', '/', $target );
+
+	// put the wrapper back on the target
+	if( $wrapper !== null ) {
+		$target = $wrapper . '://' . $target;
 	}
 
 	// safe mode fails with a trailing slash under certain PHP versions.
@@ -1555,8 +1568,6 @@ function wp_upload_dir( $time = null ) {
 		}
 	}
 
-	$dir = SAE_DIR;
-	$url = SAE_URL;
 	$basedir = $dir;
 	$baseurl = $url;
 
@@ -1916,7 +1927,6 @@ function wp_get_mime_types() {
 	'tar' => 'application/x-tar',
 	'zip' => 'application/zip',
 	'gz|gzip' => 'application/x-gzip',
-	'bz2' => 'application/bzip2',
 	'rar' => 'application/rar',
 	'7z' => 'application/x-7z-compressed',
 	'exe' => 'application/x-msdownload',
@@ -2946,9 +2956,15 @@ function _doing_it_wrong( $function, $message, $version ) {
 
 	// Allow plugin to filter the output error trigger
 	if ( WP_DEBUG && apply_filters( 'doing_it_wrong_trigger_error', true ) ) {
-		$version = is_null( $version ) ? '' : sprintf( __( '(This message was added in version %s.)' ), $version );
-		$message .= ' ' . __( 'Please see <a href="http://codex.wordpress.org/Debugging_in_WordPress">Debugging in WordPress</a> for more information.' );
-		trigger_error( sprintf( __( '%1$s was called <strong>incorrectly</strong>. %2$s %3$s' ), $function, $message, $version ) );
+		if ( function_exists( '__' ) ) {
+			$version = is_null( $version ) ? '' : sprintf( __( '(This message was added in version %s.)' ), $version );
+			$message .= ' ' . __( 'Please see <a href="http://codex.wordpress.org/Debugging_in_WordPress">Debugging in WordPress</a> for more information.' );
+			trigger_error( sprintf( __( '%1$s was called <strong>incorrectly</strong>. %2$s %3$s' ), $function, $message, $version ) );
+		} else {
+			$version = is_null( $version ) ? '' : sprintf( '(This message was added in version %s.)', $version );
+			$message .= ' Please see <a href="http://codex.wordpress.org/Debugging_in_WordPress">Debugging in WordPress</a> for more information.';
+			trigger_error( sprintf( '%1$s was called <strong>incorrectly</strong>. %2$s %3$s', $function, $message, $version ) );
+		}
 	}
 }
 
@@ -3703,14 +3719,6 @@ function wp_find_hierarchy_loop_tortoise_hare( $callback, $start, $override = ar
 	}
 
 	return false;
-}
-
-
-if ( !function_exists('utf8_encode') ) {
-	function utf8_encode($str) {
-		$encoding_in = mb_detect_encoding($str);
-		return mb_convert_encoding($str, 'UTF-8', $encoding_in);
-	}
 }
 
 /**
